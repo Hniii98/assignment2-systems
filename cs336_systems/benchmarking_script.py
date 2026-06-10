@@ -8,7 +8,6 @@ import statistics
 
 
 
-
 def parse_args():
 	"""
 	Parse argument from command line.
@@ -22,15 +21,17 @@ def parse_args():
 	parser.add_argument("--warm_up", type=int, default=1, help="Warm up steps before measuring time")
 	parser.add_argument("--execution", type=int, default=10, help="Executions steps for geting average result")
 
-	parser.add_argument("--d_model", type=int, required=True, 
+	# Using small size model parameters as default.
+	parser.add_argument("--d_model", type=int, default=768,
 					 	help="The dimensionality of the model embeddings and sublayer outputs")
-	parser.add_argument("--num_layers", type=int, required=True, 
+	parser.add_argument("--num_layers", type=int, default=12,
 					 	help="The number of Transformer layers to use")
-	parser.add_argument("--num_heads", type=int, required=True, 
+	parser.add_argument("--num_heads", type=int, default=12,
 					 	help="Number of heads to use in multi-headed attention. `d_model` must be evenly divisible by `num_heads`.")
-	parser.add_argument("--d_ff", type=int, required=True, 
+	parser.add_argument("--d_ff", type=int, default=3072,
 					 	help="Dimensionality of the feed-forward inner layer")
-	parser.add_argument("--mode", choices=["forward", "backward", "full"], required=True, default="forward",
+	
+	parser.add_argument("--mode", choices=["forward", "backward", "full"], default="forward",
 						help=(
 							"Profiling mode: forward, backward, or full. "
 							"forward: only forward pass; "
