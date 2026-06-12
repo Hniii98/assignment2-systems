@@ -5,6 +5,9 @@ import timeit
 import sys
 
 import statistics
+from contextlib import nullcontext
+
+from torch.cuda import nvtx
 
 
 
@@ -40,6 +43,9 @@ def parse_args():
 						))
 	parser.add_argument("--device", choices=["cuda", "cpu"], default="cuda")
 	
+	parser.add_argument("--mixed_precision", type=bool, choices=[True, False], default=False) # using bf16
+	parser.add_argument("--memory_profile", type=bool, choices=[True, False], default=False)
+
 	args = parser.parse_args()
 
 	return args
@@ -74,13 +80,18 @@ def run(model, args):
 					  size=(args.batch_size, args.context_length),
 					  device=args.device)
 	
+	
+	
 	if args.mode == "full":
 		optimizer = cs336_basics.optimizer.AdamW(model.parameters())
+
+	ctx = torch.autocast(device_type=args.device, dtype=torch.bfloat16) if args.mixed_precision else nullcontext()
 	
 	
 	# Warm up 
 	for _ in range(args.warm_up):
-		logits = model(x)
+		with ctx:
+			logits = model(x)
 
 		if args.mode == "backward" or args.mode == "full":
 			
@@ -94,30 +105,46 @@ def run(model, args):
 	# Wait warm up finished
 	torch.cuda.synchronize() 
 
+	# Starting recording memory histroy
+	if args.memory_profile: 
+		torch.cuda.memory._record_memory_history(max_entries=1000000)
+
 	# Execution
 	time_each_step = []
 	total_start = timeit.default_timer()
+
 	for _ in range(args.execution):
-		torch.cuda.synchronize()
 		step_start = timeit.default_timer()
+
 		# Every mode do the forward
-		logits = model(x)
+		with ctx:
+			logits = model(x)
+
+
+		
 
 		if args.mode == "backward" or args.mode == "full":
 			model.zero_grad(set_to_none=False)
 			loss = cs336_basics.nn_utils.cross_entropy(logits, y)
 			loss.backward()
 
+				
 		if args.mode == "full":
 			optimizer.step()
-		torch.cuda.synchronize()
-		
-		step_end = timeit.default_timer()
 
+		torch.cuda.synchronize()
+		step_end = timeit.default_timer()
 		time_each_step.append(step_end - step_start)
 
 	torch.cuda.synchronize()
 	total_end = timeit.default_timer()
+
+	# Stop recording history.
+	# Save a pickle file to be loaded by PyTorch's online tool.
+	if args.memory_profile: 
+		torch.cuda.memory._dump_snapshot(f"{args.mode}_{args.context_length}_memory_snapshot.pickle")
+		torch.cuda.memory._record_memory_history(enabled=None)
+
 	
 	return (total_end- total_start) / args.execution, time_each_step
 
