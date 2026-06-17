@@ -31,7 +31,7 @@ def main():
 		device=args.device,
 		mixed_precision=args.mixed_precision)
 	
-	avg_time, times = benchmarck("Model {args.run_mode} run", run = run, num_warmups=args.warm_up, num_trials=args.execution)
+	avg_time, times = benchmarck(f"{args.run_mode}_mode", run = run, num_warmups=args.warm_up, num_trials=args.execution, memory_profile=args.memory_profile)
 
 	print(f"{args.run_mode} run use {avg_time}  average time in {args.execution} loops, std: {statistics.stdev(times)}")
 	
