@@ -32,7 +32,7 @@ def benchmarck(description: str, run: callable, num_warmups: int = 1, num_trials
 
 		if memory_profile and record_once:
 			torch.cuda.memory._dump_snapshot(f"{description}_one_run_memory_snapshot.pickle")
-			torch.cuda.memory._record_memory_history(enabled=False)
+			torch.cuda.memory._record_memory_history(enabled=None)
 			record_once = False
 	
 
