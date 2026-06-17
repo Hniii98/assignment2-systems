@@ -42,11 +42,10 @@ def profile(description: str, run: Callable, num_warmups: int = 1, with_stack: b
 		# text_path = f"var/stacks_{description}.txt"
 		# svg_path = f"var/stacks_{description}.svg"
 	
-		output_path = os.path.dirname(os.path.abspath(__file__))
+		# output_path = os.path.dirname(os.path.abspath(__file__))
 		
-		os.makedirs(os.path.dirname(output_path), exist_ok=True)
-		#prof.export_stacks(output_path, "self_cuda_time_total")
-		prof.export_chrome_trace(os.path.join(output_path, f"{description}.json"))
+		prof.export_stacks("stack.txt", "self_cuda_time_total")
+		#prof.export_chrome_trace(os.path.join(output_path, f"{description}.json"))
 
 	return table
 
