@@ -1,5 +1,5 @@
 from cs336_systems.utils import run_forward, run_backward, run_full, get_model
-from cs336_systems.profile import profile
+from cs336_systems.profile_script import profile
 from cs336_systems.parser import parse_args
 
 import torch
