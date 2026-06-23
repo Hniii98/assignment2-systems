@@ -17,7 +17,7 @@ def main():
 
 	# Build model 
 	model = get_model(vocab_size=args.vocab_size, context_length=args.context_length, rope_theta=args.rope_theta,
-				   	  model_size=args.model_size, device=args.device)
+				   	  model_size=args.model_size, device=args.device, torch_compile=args.torch_compile)
 	
 	# Get mapped function
 	fn = fn_dict[args.run_mode]

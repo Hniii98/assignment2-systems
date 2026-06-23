@@ -18,7 +18,7 @@ def main():
 
 	# Build model
 	model = get_model(vocab_size=args.vocab_size, context_length=args.context_length, rope_theta=args.rope_theta,
-				   	  model_size=args.model_size, device=args.device)
+				   	  model_size=args.model_size, device=args.device, torch_compile=args.torch_compile)
 	
 	#Get forward only、 backward、 full run closure.
 	fn = fn_dict[args.run_mode]
@@ -33,7 +33,7 @@ def main():
 	
 	avg_time, times = benchmarck(f"{args.run_mode}_mode", run = run, num_warmups=args.warm_up, num_trials=args.execution, memory_profile=args.memory_profile)
 
-	print(f"{args.run_mode} run use {avg_time}  average time in {args.execution} loops, std: {statistics.stdev(times)}")
+	print(f"{args.run_mode} run use {avg_time:.4f}  average time in {args.execution} loops, std: {statistics.stdev(times):.4f}")
 	
 	
 

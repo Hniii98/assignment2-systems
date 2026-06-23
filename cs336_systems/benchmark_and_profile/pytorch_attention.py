@@ -42,7 +42,7 @@ class CasualMultiHeadSelfAttention(nn.Module):
 		return output
 
 
-def main():
+def main(fused_mode: bool = False):
 	# Fixed batch size
 	batch_size = 8
 	embedding_dims = [16, 32, 64, 128]
@@ -60,6 +60,9 @@ def main():
 			token_ids =torch.tensor( [id for id in range(seq_len)] , device=device)
 			model = CasualMultiHeadSelfAttention(d_model=d_model).to(device)
 
+			if fused_mode:
+				model = torch.compile(model)
+
 			# Warm up
 			for _ in range(num_warmups):
 				x = model(input, token_ids)
@@ -76,17 +79,21 @@ def main():
 			torch.cuda.synchronize()
 			end_time = timeit.default_timer()
 			mem_in_use = torch.cuda.memory_allocated()
-			
+			mem_peak = torch.cuda.max_memory_allocated()
+			forward_time_toatal = end_time - start_time
 
-			print(f"{end_time - start_time:.4f} s for 100 passes forward with seq_len: {seq_len} d_model: {d_model}, use {mem_in_use / 1024**3:.4f} GiB memory")
+			print(f"{forward_time_toatal:.4f} s for 100 passes forward with seq_len: {seq_len} d_model: {d_model},  {mem_in_use / 1024**3:.4f} GiB memory in use now and {mem_peak / 1024**3:.4f} in peak")
 
 			start_time = timeit.default_timer()
+
 			for i in range(num_trials):
-				x.mean().backward(retain_graph=True)
+				x = model(input, token_ids)
+				x.mean().backward()
 			torch.cuda.synchronize()
 			end_time = timeit.default_timer()
+			backward_time_total = end_time - start_time - forward_time_toatal
 
-			print(f"{end_time - start_time:.4f} s for 100 passes backward with seq_len: {seq_len} d_model: {d_model}")
+			print(f"{backward_time_total:.4f} s for 100 passes backward with seq_len: {seq_len} d_model: {d_model}")
 				
 if __name__ == "__main__":
 	main()

@@ -37,6 +37,7 @@ def parse_args():
 	parser.add_argument("--mixed_precision", action="store_true", default=False) # using bf16
 	parser.add_argument("--memory_profile", action="store_true", default=False)
 	parser.add_argument("--device", type=str, choices=["cuda", "cpu"], default="cuda")
+	parser.add_argument("--torch_compile", action="store_true", default=False)
 
 	args = parser.parse_args()
 

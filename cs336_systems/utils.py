@@ -9,7 +9,7 @@ from contextlib import nullcontext
 def get_device(device: str):
 	return torch.device(device=device)
 
-def get_model(vocab_size: int, context_length: int, rope_theta: float, model_size: str, device: str):
+def get_model(vocab_size: int, context_length: int, rope_theta: float, model_size: str, device: str, torch_compile: bool):
 	model_hyper = CONFIGS.get(model_size, CONFIGS["small"])
 
 
@@ -23,6 +23,9 @@ def get_model(vocab_size: int, context_length: int, rope_theta: float, model_siz
 		d_ff=model_hyper["d_ff"]
 
 	)
+
+	if torch_compile:
+		model = torch.compile(model)
 
 	return model.to(get_device(device=device))
 
@@ -75,7 +78,7 @@ def run_full(model: torch.nn.Module, batch_size: int, vocab_size: int, context_l
 	def run():
 		with ctx:
 			logits = model(input_tensor)
-			model.zero_grad(set_to_none=False)
+			model.zero_grad(set_to_none=True)
 			
 			loss = cs336_basics.nn_utils.cross_entropy(logits, target)
 			loss.backward()
