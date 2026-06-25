@@ -41,7 +41,6 @@ class FlashAttenPytorch(torch.autograd.Function):
 					mi = torch.maximum(tile_row_max, mi_pre) # [Q_TILE_SIZE]
 					local_exp = torch.exp(tile_attn_score - mi[:, None]) # [Q_TILE_SIZE, K_TILE_SIZE]
 					row_sum_local_exp = torch.sum(local_exp, dim=1) # [Q_TILE_SIZE]
-
 					scales = torch.exp(mi_pre - mi)
 					li = scales * li_pre + row_sum_local_exp # [Q_TILE_SIZE]
 					Oi = scales[:, None] * Oi_pre + local_exp @ Vj # [Q_TILE_SIZE, D]
@@ -52,6 +51,7 @@ class FlashAttenPytorch(torch.autograd.Function):
 					mi_pre = mi
 				
 				Oi = Oi_pre / li_pre[:, None]
+				# LSE of #Q_TILE_SIZE row, for recovering after softmax logits without saving huge matrix
 				li = mi_pre + torch.log(li_pre)
 				O[b, start_q:end_q,:] = Oi
 				L[b, start_q:end_q] = li
