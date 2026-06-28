@@ -1,6 +1,8 @@
 import triton
 import triton.language as tl	
 
+import torch
+
 @triton.jit
 def flash_fwd_kernel(
 	Q_ptr, K_ptr, V_ptr,
@@ -13,6 +15,7 @@ def flash_fwd_kernel(
 	N_QUERIES, N_KEYS,
 	scale,
 	D: tl.constexpr,
+	is_causal: tl.constexpr,
 	Q_TILE_SIZE: tl.constexpr,
 	K_TILE_SIZE: tl.constexpr,
 ):
@@ -72,7 +75,9 @@ def flash_fwd_kernel(
 	li = tl.zeros((Q_TILE_SIZE,), dtype=tl.float32)
 	mi = tl.full((Q_TILE_SIZE,), float('-inf'), dtype=tl.float32)
 
-	Qi = tl.load(Q_block_ptr, boundary_check=(0,1), padding_option='zero')
+	Qi = tl.load(Q_block_ptr, boundary_check=(0, 1), padding_option='zero')
+	if is_causal:
+		Qi_idx = tl.arange(0, Q_TILE_SIZE) + query_tile_index * Q_TILE_SIZE
 
 	for i in range(tl.cdiv(N_KEYS, K_TILE_SIZE)):
 		Ki = tl.load(K_block_ptr, boundary_check=(0, 1), padding_option='zero')
@@ -83,6 +88,11 @@ def flash_fwd_kernel(
 		Si = tl.dot(Qi, tl.trans(Ki), acc=Si) / scale
 		rows_max = tl.max(Si, axis=1)
 		
+		# Compuyte mask if is_causual set to be true
+		if is_causal:
+			Ki_idx = tl.arange(0, K_TILE_SIZE) + i * K_TILE_SIZE
+			casual_mask = Ki_idx[None,:] <= Qi_idx[:, None]
+			Si = tl.where(casual_mask, Si, -1e6)
 		# Compute tile of attention scores row maximum and store in m_cur 
 		m_cur = tl.maximum(mi, rows_max)
 		factor = tl.exp(mi - m_cur)
