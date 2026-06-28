@@ -126,7 +126,7 @@ def flash_fwd_kernel(
 
 class FlashAttenTriton(torch.autograd.Function):
 	@staticmethod
-	def forward(ctx, Q, K, V, is_casual=False):
+	def forward(ctx, Q, K, V, is_causal=False):
 		NB, NQ, D = Q.shape
 		_, NK, _ = K.shape
 		Q_TILE_SIZE = 16
@@ -141,7 +141,7 @@ class FlashAttenTriton(torch.autograd.Function):
 			*O.stride(), *L.stride(),
 			N_QUERIES=NQ, N_KEYS=NK,
 			scale=D**0.5,
-			is_causal=is_casual,
+			is_causal=is_causal,
 			D=D,
 			Q_TILE_SIZE=Q_TILE_SIZE,
 			K_TILE_SIZE=K_TILE_SIZE
