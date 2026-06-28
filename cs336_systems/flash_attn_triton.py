@@ -50,7 +50,7 @@ def flash_fwd_kernel(
 	)
 
 	L_block_ptr = tl.make_block_ptr(
-		L_ptr + batch_index * stride_lb + query_tile_index * Q_TILE_SIZE,
+		L_ptr + batch_index * stride_lb,
 		shape=(N_QUERIES,),
 		strides=(stride_lq,),
 		offsets=(query_tile_index * Q_TILE_SIZE),
@@ -59,10 +59,10 @@ def flash_fwd_kernel(
 	)
 
 	O_block_ptr = tl.make_block_ptr(
-		O_ptr + batch_index * stride_ob + query_tile_index * K_TILE_SIZE,
+		O_ptr + batch_index * stride_ob,
 		shape=(N_QUERIES, D),
 		strides=(stride_oq, stride_od),
-		offsets=(query_tile_index * Q_TILE_SIZE),
+		offsets=(query_tile_index * Q_TILE_SIZE, 0),
 		block_shape=(Q_TILE_SIZE, D),
 		order=(1, 0),
 	)
@@ -74,8 +74,8 @@ def flash_fwd_kernel(
 
 	Qi = tl.load(Q_block_ptr, boundary_check=(0,1), padding_option='zero')
 
-	for i in range(tl.cdiv(D, K_TILE_SIZE)):
-		Ki = tl.load(K_block_ptr, boundary_check=(0,1), padding_option='zero')
+	for i in range(tl.cdiv(N_KEYS, K_TILE_SIZE)):
+		Ki = tl.load(K_block_ptr, boundary_check=(0, 1), padding_option='zero')
 		Vi = tl.load(V_block_ptr, boundary_check=(0, 1), padding_option='zero')
 		
 		# Compute tile of pre-softmax attention socres
@@ -85,19 +85,25 @@ def flash_fwd_kernel(
 		
 		# Compute tile of attention scores row maximum and store in m_cur 
 		m_cur = tl.maximum(mi, rows_max)
-		facotr = tl.exp(mi - m_cur)
+		factor = tl.exp(mi - m_cur)
+		# Update row max
 		mi = m_cur
 
 		Pi = tl.exp(Si - mi[:,None])
 		li = factor * li + tl.sum(Pi, axis=1)
 
-		Oi = facotr * Oi
+		Oi = factor[:, None] * Oi
 		# Align data type of Pi to Vi
 		Pi = Pi.to(V_block_ptr.type.element_ty)
 		Oi = tl.dot(Pi, Vi, acc=Oi)
+
+		K_block_ptr = K_block_ptr.advance((K_TILE_SIZE, 0))
+		V_block_ptr = V_block_ptr.advance((K_TILE_SIZE, 0))
+
 	
 	# Do the outer scale
 	Oi = Oi / li[:, None]
+	# Compue mi + LSE
 	li = mi + tl.log(li)
 
 	Oi = Oi.to(O_block_ptr.type.element_ty)
@@ -105,11 +111,52 @@ def flash_fwd_kernel(
 	tl.store(O_block_ptr, Oi, boundary_check=(0, 1))
 	tl.store(L_block_ptr, li, boundary_check=(0,))
 
-	# Move the pointer to next tile along N_QUERIES
-	Q_block_ptr = Q_block_ptr.advance((Q_TILE_SIZE, 0))
-	O_block_ptr = O_block_ptr.advance((Q_TILE_SIZE, 0))
+	
 
-	L_block_ptr = L_block_ptr.advance((Q_TILE_SIZE,))
+
+class FlashAttenTriton(torch.autograd.Function):
+	@staticmethod
+	def forward(ctx, Q, K, V, is_casual=False):
+		NB, NQ, D = Q.shape
+		_, NK, _ = K.shape
+		Q_TILE_SIZE = 16
+		K_TILE_SIZE = 16
+
+		O = torch.zeros_like(Q)
+		L = torch.zeros((NB, NQ), device=Q.device)
+		
+		flash_fwd_kernel[(NQ, NB)](
+			Q, K, V, O, L,
+			*Q.stride(), *K.stride(), *V.stride(),
+			*O.stride(), *L.stride(),
+			N_QUERIES=NQ, N_KEYS=NK,
+			scale=D**0.5,
+			is_causal=is_casual,
+			D=D,
+			Q_TILE_SIZE=Q_TILE_SIZE,
+			K_TILE_SIZE=K_TILE_SIZE
+		)
+	
+		ctx.save_for_backward(L, Q, K, V, O)
+		return O
+	
+	@staticmethod
+	def backward(ctx, grad_output):
+		raise NotImplementedError
+	
+
+
+
+
+
+
+
+				
+				
+
+
+			
+		
 
 
 		
