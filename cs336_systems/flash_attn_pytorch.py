@@ -3,10 +3,53 @@ from einops import rearrange
 import math
 
 
+#@torch.compile
+def _flash_attn_bwd_impl(Q, K, V, O, grad_output, L):
+	NB, NQ, DIM = Q.shape
+	_, NK, _  = K.shape
+
+	Q_TILE_SIZE = 16
+	K_TILE_SIZE = 16
+	scale = math.sqrt(DIM)
+
+	dQ = torch.zeros_like(Q)
+	dK = torch.zeros_like(K)
+	dV = torch.zeros_like(V)
+
+	for	b in range(NB):
+		D = torch.sum(O[b, :, :] * grad_output[b, :, :], dim=-1, keepdim=True) # [NQ, 1]
+		for i in range((NQ + Q_TILE_SIZE - 1) // Q_TILE_SIZE):
+			start_q = i*Q_TILE_SIZE
+			end_q = i*Q_TILE_SIZE + Q_TILE_SIZE
+
+			Qi = Q[b, start_q:end_q, :]	# Load Qi: [Q_TILE_SIZE, DIM]
+			dOi = grad_output[b, start_q:end_q, :] # Load dOi: [Q_TILE_SIZE, DIM]
+			
+			Li = L[b, start_q:end_q] 	# Load Li:  [Q_TILE_SIZE]
+			Di = D[start_q:end_q, :] 	# [Q_TILE_SIZE, 1]
+			for j in range((NK + K_TILE_SIZE - 1) // K_TILE_SIZE):
+				start_k = j*K_TILE_SIZE
+				end_k = j*K_TILE_SIZE + K_TILE_SIZE
+
+				Kj = K[b, start_k:end_k, :]# Load Kj: [K_TILE_SIZE, DIM]
+				Vj = V[b, start_k:end_k,:]# Load Vj: [K_TILE_SIZE, DIM]
+
+				Sij =  (Qi @ Kj.T) / scale # [Q_TILE_SIZE, K_TILE_SIZE]
+				Pij = torch.exp(Sij - Li[:, None]) # [Q_TILE_SIZE, K_TILE_SIZE]
+				dV[b, start_k:end_k, :] += Pij.T @ dOi # [K_TILE_SIZE, DIM]
+
+				dPij = dOi @ Vj.T # [Q_TILE_SIZE, K_TILE_SIZE]
+				dSij = Pij*(dPij - Di) # [Q_TILE_SIZE, K_TILE_SIZE]
+
+				dQ[b, start_q:end_q, :] += (dSij @ Kj) / scale # [Q_TILE_SIZE, DIM]
+				dK[b, start_k:end_k, :] += (dSij.T @ Qi) / scale# [K_TILE_SIZE, DIM]
+	return dQ, dK, dV
+
+
 class FlashAttenPytorch(torch.autograd.Function):
 	@staticmethod
 	def forward(ctx, Q, K, V, is_casual=False):
-		NB, NQ, D = Q.shape
+		NB, NQ, DIM = Q.shape
 		_, NK, _ = K.shape
 		Q_TILE_SIZE = 16
 		K_TILE_SIZE = 16
@@ -16,7 +59,7 @@ class FlashAttenPytorch(torch.autograd.Function):
 		
 		for b in range(NB):
 			for i in range((NQ + Q_TILE_SIZE - 1) // Q_TILE_SIZE):
-				# Q : [Q_TILE_SIZE, D]
+				# Q : [Q_TILE_SIZE, DIM]
 				start_q = i*Q_TILE_SIZE
 				end_q = i*Q_TILE_SIZE + Q_TILE_SIZE
 				Qi = Q[b, start_q:end_q, :]	# Load Q
@@ -25,15 +68,15 @@ class FlashAttenPytorch(torch.autograd.Function):
 				mi_pre = torch.full((Q_TILE_SIZE,), float('-inf'), device=Q.device, dtype=Q.dtype)
 
 				for j in range((NK + K_TILE_SIZE - 1) // K_TILE_SIZE):
-					# Kj : [K_TILE_SIZE, D]
-					# Vj : [K_TILE_SIZE, D]
+					# Kj : [K_TILE_SIZE, DIM]
+					# Vj : [K_TILE_SIZE, DIM]
 					start_k = j*K_TILE_SIZE
 					end_k = j*K_TILE_SIZE + K_TILE_SIZE
 					Kj = K[b, start_k:end_k,:]
 					Vj = V[b, start_k:end_k,:]
 				
 					# Compute tile fo pre-softmax attention score Sij
-					tile_attn_score = (Qi @ Kj.T)	/ math.sqrt(D)
+					tile_attn_score = (Qi @ Kj.T)	/ math.sqrt(DIM)
 					# Compute tile row max 
 					#print(tile_attn_score.shape)
 					tile_row_max = torch.max(tile_attn_score, dim=1).values
@@ -43,7 +86,7 @@ class FlashAttenPytorch(torch.autograd.Function):
 					row_sum_local_exp = torch.sum(local_exp, dim=1) # [Q_TILE_SIZE]
 					scales = torch.exp(mi_pre - mi)
 					li = scales * li_pre + row_sum_local_exp # [Q_TILE_SIZE]
-					Oi = scales[:, None] * Oi_pre + local_exp @ Vj # [Q_TILE_SIZE, D]
+					Oi = scales[:, None] * Oi_pre + local_exp @ Vj # [Q_TILE_SIZE, DIM]
 
 					# Update row parameters
 					Oi_pre = Oi
@@ -56,12 +99,32 @@ class FlashAttenPytorch(torch.autograd.Function):
 				O[b, start_q:end_q,:] = Oi
 				L[b, start_q:end_q] = li
 
-		ctx.save_for_backward(L, Q, K, V, O)
+		ctx.save_for_backward(Q, K, V, O, L)
 		return O
 	
 	@staticmethod
 	def backward(ctx, grad_output):
-		raise NotImplementedError
+		Q, K, V, O, L = ctx.saved_tensors
+
+		dQ, dK, dV = _flash_attn_bwd_impl(Q, K, V, O,grad_output, L)
+					
+		
+		return dQ, dK, dV, None
+				
+
+
+
+				
+				
+
+
+			
+
+
+		
+
+
+		
 	
 
 
