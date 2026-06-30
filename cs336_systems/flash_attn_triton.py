@@ -14,7 +14,7 @@ def flash_fwd_kernel(
 	stride_lb, stride_lq,
 	N_QUERIES, N_KEYS,
 	scale,
-	D: tl.constexpr,
+	DIM: tl.constexpr,
 	is_causal: tl.constexpr,
 	Q_TILE_SIZE: tl.constexpr,
 	K_TILE_SIZE: tl.constexpr,
@@ -27,28 +27,28 @@ def flash_fwd_kernel(
 	# multiplied with the batch stride for each tensor
 	Q_block_ptr = tl.make_block_ptr(
 		Q_ptr + batch_index * stride_qb,
-		shape=(N_QUERIES, D),
+		shape=(N_QUERIES, DIM),
 		strides=(stride_qq, stride_qd),
 		offsets=(query_tile_index * Q_TILE_SIZE, 0),
-		block_shape=(Q_TILE_SIZE, D),
+		block_shape=(Q_TILE_SIZE, DIM),
 		order=(1, 0),
 	)
 
 	K_block_ptr = tl.make_block_ptr(
 		K_ptr + batch_index * stride_kb,
-		shape=(N_KEYS, D),
+		shape=(N_KEYS, DIM),
 		strides=(stride_kk, stride_kd),
 		offsets=(0, 0),
-		block_shape=(K_TILE_SIZE, D),
+		block_shape=(K_TILE_SIZE, DIM),
 		order=(1, 0),
 	)
 
 	V_block_ptr = tl.make_block_ptr(
 		V_ptr + batch_index * stride_vb,
-		shape=(N_KEYS, D),
+		shape=(N_KEYS, DIM),
 		strides=(stride_vk, stride_vd),
 		offsets=(0, 0),
-		block_shape=(K_TILE_SIZE, D),
+		block_shape=(K_TILE_SIZE, DIM),
 		order=(1, 0),
 	)
 
@@ -63,15 +63,15 @@ def flash_fwd_kernel(
 
 	O_block_ptr = tl.make_block_ptr(
 		O_ptr + batch_index * stride_ob,
-		shape=(N_QUERIES, D),
+		shape=(N_QUERIES, DIM),
 		strides=(stride_oq, stride_od),
 		offsets=(query_tile_index * Q_TILE_SIZE, 0),
-		block_shape=(Q_TILE_SIZE, D),
+		block_shape=(Q_TILE_SIZE, DIM),
 		order=(1, 0),
 	)
 
 	# On chip buffer 
-	Oi = tl.zeros((Q_TILE_SIZE, D), dtype=tl.float32)
+	Oi = tl.zeros((Q_TILE_SIZE, DIM), dtype=tl.float32)
 	li = tl.zeros((Q_TILE_SIZE,), dtype=tl.float32)
 	mi = tl.full((Q_TILE_SIZE,), float('-inf'), dtype=tl.float32)
 
